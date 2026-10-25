@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   mac:
     runs-on: macos-14
@@ -27,7 +30,8 @@ jobs:
           codesign --force --deep --sign - "$A/VST3/Kizami.vst3"
           codesign --force --deep --sign - "$A/AU/Kizami.component"
           codesign --force --deep --sign - "$A/Standalone/Kizami.app"
-          lipo -info "$A/VST3/Kizami.vst3/Contents/MacOS/Kizami"
+          lipo -info "$A/VST3/Kizami.vst3/Contents/MacOS/Kizami" | tee build-report.txt
+          lipo -info "$A/AU/Kizami.component/Contents/MacOS/Kizami" | tee -a build-report.txt
 
       - name: Validate the Audio Unit (auval)
         run: |
@@ -35,7 +39,8 @@ jobs:
           cp -R build/Kizami_artefacts/Release/AU/Kizami.component ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
           sleep 3
-          auval -v aumu Kzm1 Kzmi
+          auval -v aumu Kzm1 Kzmi | tee auval.txt
+          tail -5 auval.txt >> build-report.txt
 
       - name: Package
         run: |
@@ -45,6 +50,27 @@ jobs:
           cp dist-extras/* Kizami/
           chmod +x "Kizami/Kizamiをインストール.command"
           ditto -c -k --sequesterRsrc --keepParent Kizami Kizami-mac.zip
+
+      - name: Publish as a GitHub Release (public download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          printf 'Kizami Mac版(VST3 / AU / 単体アプリ・Apple Silicon + Intel)\n\nKizami-mac.zip をダウンロードして解凍し、「はじめにお読みください.txt」の手順でインストールしてください。\n' > notes.txt
+          gh release create "$TAG" Kizami-mac.zip --title "Kizami $TAG" --notes-file notes.txt --latest
+
+      - name: Keep a copy on the builds branch
+        run: |
+          git config user.name "kizami-bot"
+          git config user.email "noreply@github.com"
+          mkdir -p /tmp/out && cp Kizami-mac.zip build-report.txt /tmp/out/
+          git checkout --orphan builds
+          git rm -rf -q . || true
+          rm -rf JUCE build Kizami
+          cp /tmp/out/* .
+          git add Kizami-mac.zip build-report.txt
+          git commit -q -m "Mac build ${{ github.run_number }}"
+          git push -f origin builds
 
       - uses: actions/upload-artifact@v4
         with:
