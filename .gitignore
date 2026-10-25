@@ -1,0 +1,7 @@
+JUCE/
+build/
+test/build/
+hdr/
+sysinc/
+*.zip
+.DS_Store

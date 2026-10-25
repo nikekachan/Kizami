@@ -1,0 +1,53 @@
+name: Build for Mac
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
+      - name: Configure (Universal: Apple Silicon + Intel)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build VST3 / AU / Standalone
+        run: cmake --build build --config Release -j 4
+
+      - name: Sign (ad-hoc)
+        run: |
+          A=build/Kizami_artefacts/Release
+          codesign --force --deep --sign - "$A/VST3/Kizami.vst3"
+          codesign --force --deep --sign - "$A/AU/Kizami.component"
+          codesign --force --deep --sign - "$A/Standalone/Kizami.app"
+          lipo -info "$A/VST3/Kizami.vst3/Contents/MacOS/Kizami"
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build/Kizami_artefacts/Release/AU/Kizami.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aumu Kzm1 Kzmi
+
+      - name: Package
+        run: |
+          A=build/Kizami_artefacts/Release
+          mkdir -p Kizami
+          cp -R "$A/VST3/Kizami.vst3" "$A/AU/Kizami.component" "$A/Standalone/Kizami.app" Kizami/
+          cp dist-extras/* Kizami/
+          chmod +x "Kizami/Kizamiをインストール.command"
+          ditto -c -k --sequesterRsrc --keepParent Kizami Kizami-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kizami-mac
+          path: Kizami-mac.zip
+          retention-days: 30
