@@ -5,3 +5,5 @@ hdr/
 sysinc/
 *.zip
 .DS_Store
+build-nagare/
+Nagare/test/build/

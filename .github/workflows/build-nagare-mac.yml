@@ -1,0 +1,76 @@
+name: Build Nagare for Mac
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Nagare/**', '.github/workflows/build-nagare-mac.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
+      - name: "Configure (Universal - Apple Silicon + Intel)"
+        run: cmake -S Nagare -B build-nagare -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build VST3 / AU / Standalone
+        run: cmake --build build-nagare --config Release -j 4
+
+      - name: Sign (ad-hoc)
+        run: |
+          A=build-nagare/Nagare_artefacts/Release
+          codesign --force --deep --sign - "$A/VST3/Nagare.vst3"
+          codesign --force --deep --sign - "$A/AU/Nagare.component"
+          codesign --force --deep --sign - "$A/Standalone/Nagare.app"
+          lipo -info "$A/VST3/Nagare.vst3/Contents/MacOS/Nagare" | tee build-report.txt
+          lipo -info "$A/AU/Nagare.component/Contents/MacOS/Nagare" | tee -a build-report.txt
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build-nagare/Nagare_artefacts/Release/AU/Nagare.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aumu Ngr1 Ktsn | tee auval.txt
+          tail -5 auval.txt >> build-report.txt
+
+      - name: Package
+        run: |
+          A=build-nagare/Nagare_artefacts/Release
+          mkdir -p Nagare-pkg/Nagare
+          cp -R "$A/VST3/Nagare.vst3" "$A/AU/Nagare.component" "$A/Standalone/Nagare.app" Nagare-pkg/Nagare/
+          cp Nagare/dist-extras/* Nagare-pkg/Nagare/
+          mkdir -p Nagare-pkg/Nagare/licenses
+          cp Nagare/Assets/OFL-*.txt Nagare-pkg/Nagare/licenses/
+          chmod +x "Nagare-pkg/Nagare/Nagareをインストール.command"
+          (cd Nagare-pkg && ditto -c -k --sequesterRsrc --keepParent Nagare ../Nagare-mac.zip)
+
+      - name: Publish as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="nagare-v1.0.${{ github.run_number }}"
+          printf 'DJ KATSUNII · Nagare Synth Mac版(VST3 / AU / 単体アプリ・Apple Silicon + Intel)\n\nNagare-mac.zip をダウンロードして解凍し、「はじめにお読みください.txt」の手順でインストールしてください。\n' > notes.txt
+          gh release create "$TAG" Nagare-mac.zip --title "Nagare $TAG" --notes-file notes.txt --latest=false
+
+      - name: Keep a copy on the nagare-builds branch
+        run: |
+          git config user.name "kizami-bot"
+          git config user.email "noreply@github.com"
+          mkdir -p /tmp/out && cp Nagare-mac.zip build-report.txt /tmp/out/
+          git checkout --orphan nagare-builds
+          git rm -rf -q . || true
+          rm -rf JUCE build-nagare Nagare-pkg Nagare
+          cp /tmp/out/* .
+          git add Nagare-mac.zip build-report.txt
+          git commit -q -m "Nagare Mac build ${{ github.run_number }}"
+          git push -f origin nagare-builds

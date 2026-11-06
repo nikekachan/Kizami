@@ -3,6 +3,7 @@ name: Build for Mac
 on:
   push:
     branches: [ main ]
+    paths-ignore: [ 'Nagare/**', '.github/workflows/build-nagare-mac.yml' ]
   workflow_dispatch:
 
 permissions:
