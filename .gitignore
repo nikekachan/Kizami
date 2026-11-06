@@ -7,3 +7,5 @@ sysinc/
 .DS_Store
 build-nagare/
 Nagare/test/build/
+Yugami/test/build/
+build-yugami/

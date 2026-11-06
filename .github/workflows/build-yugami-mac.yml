@@ -1,0 +1,76 @@
+name: Build YUGAMI for Mac
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Yugami/**', '.github/workflows/build-yugami-mac.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
+      - name: "Configure (Universal - Apple Silicon + Intel)"
+        run: cmake -S Yugami -B build-yugami -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build VST3 / AU / Standalone
+        run: cmake --build build-yugami --config Release -j 4
+
+      - name: Sign (ad-hoc)
+        run: |
+          A=build-yugami/Yugami_artefacts/Release
+          codesign --force --deep --sign - "$A/VST3/YUGAMI.vst3"
+          codesign --force --deep --sign - "$A/AU/YUGAMI.component"
+          codesign --force --deep --sign - "$A/Standalone/YUGAMI.app"
+          lipo -info "$A/VST3/YUGAMI.vst3/Contents/MacOS/YUGAMI" | tee build-report.txt
+          lipo -info "$A/AU/YUGAMI.component/Contents/MacOS/YUGAMI" | tee -a build-report.txt
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build-yugami/Yugami_artefacts/Release/AU/YUGAMI.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aumf Ygm1 Ktsn | tee auval.txt
+          tail -5 auval.txt >> build-report.txt
+
+      - name: Package
+        run: |
+          A=build-yugami/Yugami_artefacts/Release
+          mkdir -p YUGAMI-pkg/YUGAMI
+          cp -R "$A/VST3/YUGAMI.vst3" "$A/AU/YUGAMI.component" "$A/Standalone/YUGAMI.app" YUGAMI-pkg/YUGAMI/
+          cp Yugami/dist-extras/* YUGAMI-pkg/YUGAMI/
+          mkdir -p YUGAMI-pkg/YUGAMI/licenses
+          cp Yugami/Assets/OFL-*.txt YUGAMI-pkg/YUGAMI/licenses/
+          chmod +x "YUGAMI-pkg/YUGAMI/YUGAMIをインストール.command"
+          (cd YUGAMI-pkg && ditto -c -k --sequesterRsrc --keepParent YUGAMI ../YUGAMI-mac.zip)
+
+      - name: Publish as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="yugami-v1.0.${{ github.run_number }}"
+          printf 'DJ KATSUNII · YUGAMI Mac版(エフェクト)(VST3 / AU / 単体アプリ・Apple Silicon + Intel)\n\nYUGAMI-mac.zip をダウンロードして解凍し、「はじめにお読みください.txt」の手順でインストールしてください。\n' > notes.txt
+          gh release create "$TAG" YUGAMI-mac.zip --title "YUGAMI $TAG" --notes-file notes.txt --latest=false
+
+      - name: Keep a copy on the yugami-builds branch
+        run: |
+          git config user.name "kizami-bot"
+          git config user.email "noreply@github.com"
+          mkdir -p /tmp/out && cp YUGAMI-mac.zip build-report.txt /tmp/out/
+          git checkout --orphan yugami-builds
+          git rm -rf -q . || true
+          rm -rf JUCE build-yugami YUGAMI-pkg Yugami Nagare Source test dist-extras
+          cp /tmp/out/* .
+          git add YUGAMI-mac.zip build-report.txt
+          git commit -q -m "YUGAMI Mac build ${{ github.run_number }}"
+          git push -f origin yugami-builds
