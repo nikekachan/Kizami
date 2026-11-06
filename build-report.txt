@@ -1,0 +1,7 @@
+Architectures in the fat file: build-nagare/Nagare_artefacts/Release/VST3/Nagare.vst3/Contents/MacOS/Nagare are: x86_64 arm64 
+Architectures in the fat file: build-nagare/Nagare_artefacts/Release/AU/Nagare.component/Contents/MacOS/Nagare are: x86_64 arm64 
+
+* * PASS
+--------------------------------------------------
+AU VALIDATION SUCCEEDED.
+--------------------------------------------------
