@@ -1,0 +1,7 @@
+Architectures in the fat file: build-yugami/Yugami_artefacts/Release/VST3/YUGAMI.vst3/Contents/MacOS/YUGAMI are: x86_64 arm64 
+Architectures in the fat file: build-yugami/Yugami_artefacts/Release/AU/YUGAMI.component/Contents/MacOS/YUGAMI are: x86_64 arm64 
+
+* * PASS
+--------------------------------------------------
+AU VALIDATION SUCCEEDED.
+--------------------------------------------------
