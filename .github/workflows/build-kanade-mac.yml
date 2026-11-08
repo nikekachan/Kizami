@@ -1,0 +1,76 @@
+name: Build KANADE for Mac
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Kanade/**', '.github/workflows/build-kanade-mac.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
+      - name: "Configure (Universal - Apple Silicon + Intel)"
+        run: cmake -S Kanade -B build-kanade -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build VST3 / AU / Standalone
+        run: cmake --build build-kanade --config Release -j 4
+
+      - name: Sign (ad-hoc)
+        run: |
+          A=build-kanade/Kanade_artefacts/Release
+          codesign --force --deep --sign - "$A/VST3/KANADE.vst3"
+          codesign --force --deep --sign - "$A/AU/KANADE.component"
+          codesign --force --deep --sign - "$A/Standalone/KANADE.app"
+          lipo -info "$A/VST3/KANADE.vst3/Contents/MacOS/KANADE" | tee build-report.txt
+          lipo -info "$A/AU/KANADE.component/Contents/MacOS/KANADE" | tee -a build-report.txt
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build-kanade/Kanade_artefacts/Release/AU/KANADE.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aufx Knd1 Ktsn | tee auval.txt
+          tail -5 auval.txt >> build-report.txt
+
+      - name: Package
+        run: |
+          A=build-kanade/Kanade_artefacts/Release
+          mkdir -p KANADE-pkg/KANADE
+          cp -R "$A/VST3/KANADE.vst3" "$A/AU/KANADE.component" "$A/Standalone/KANADE.app" KANADE-pkg/KANADE/
+          cp Kanade/dist-extras/* KANADE-pkg/KANADE/
+          mkdir -p KANADE-pkg/KANADE/licenses
+          cp Kanade/Assets/OFL-*.txt KANADE-pkg/KANADE/licenses/
+          chmod +x "KANADE-pkg/KANADE/KANADEをインストール.command"
+          (cd KANADE-pkg && ditto -c -k --sequesterRsrc --keepParent KANADE ../KANADE-mac.zip)
+
+      - name: Publish as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="kanade-v1.0.${{ github.run_number }}"
+          printf 'DJ KATSUNII · KANADE Mac版(ピッチ補正)(VST3 / AU / 単体アプリ・Apple Silicon + Intel)\n\nKANADE-mac.zip をダウンロードして解凍し、「はじめにお読みください.txt」の手順でインストールしてください。\n' > notes.txt
+          gh release create "$TAG" KANADE-mac.zip --title "KANADE $TAG" --notes-file notes.txt --latest=false
+
+      - name: Keep a copy on the kanade-builds branch
+        run: |
+          git config user.name "kizami-bot"
+          git config user.email "noreply@github.com"
+          mkdir -p /tmp/out && cp KANADE-mac.zip build-report.txt /tmp/out/
+          git checkout --orphan kanade-builds
+          git rm -rf -q . || true
+          rm -rf JUCE build-kanade KANADE-pkg Kanade Nagare Yugami Source test dist-extras
+          cp /tmp/out/* .
+          git add KANADE-mac.zip build-report.txt
+          git commit -q -m "KANADE Mac build ${{ github.run_number }}"
+          git push -f origin kanade-builds

@@ -9,3 +9,6 @@ build-nagare/
 Nagare/test/build/
 Yugami/test/build/
 build-yugami/
+Kanade/test/build/
+build-kanade/
+Kanade/test/demo44k.f32
