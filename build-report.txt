@@ -1,0 +1,7 @@
+Architectures in the fat file: build-kanade/Kanade_artefacts/Release/VST3/KANADE.vst3/Contents/MacOS/KANADE are: x86_64 arm64 
+Architectures in the fat file: build-kanade/Kanade_artefacts/Release/AU/KANADE.component/Contents/MacOS/KANADE are: x86_64 arm64 
+
+* * PASS
+--------------------------------------------------
+AU VALIDATION SUCCEEDED.
+--------------------------------------------------
