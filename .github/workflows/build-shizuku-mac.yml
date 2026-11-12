@@ -1,0 +1,77 @@
+name: Build SHIZUKU for Mac
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'Shizuku/**', '.github/workflows/build-shizuku-mac.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get JUCE 8.0.4
+        run: git clone --depth 1 --branch 8.0.4 https://github.com/juce-framework/JUCE.git
+
+      - name: "Configure (Universal - Apple Silicon + Intel)"
+        run: cmake -S Shizuku -B build-shizuku -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build VST3 / AU / Standalone
+        run: cmake --build build-shizuku --config Release -j 4
+
+      - name: Sign (ad-hoc)
+        run: |
+          A=build-shizuku/Shizuku_artefacts/Release
+          codesign --force --deep --sign - "$A/VST3/SHIZUKU.vst3"
+          codesign --force --deep --sign - "$A/AU/SHIZUKU.component"
+          codesign --force --deep --sign - "$A/Standalone/SHIZUKU.app"
+          lipo -info "$A/VST3/SHIZUKU.vst3/Contents/MacOS/SHIZUKU" | tee build-report.txt
+          lipo -info "$A/AU/SHIZUKU.component/Contents/MacOS/SHIZUKU" | tee -a build-report.txt
+
+      - name: Validate the Audio Unit (auval)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build-shizuku/Shizuku_artefacts/Release/AU/SHIZUKU.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -v aumu Shz1 Ktsn | tee auval.txt
+          tail -5 auval.txt >> build-report.txt
+
+      - name: Package
+        run: |
+          A=build-shizuku/Shizuku_artefacts/Release
+          mkdir -p SHIZUKU-pkg/SHIZUKU
+          cp -R "$A/VST3/SHIZUKU.vst3" "$A/AU/SHIZUKU.component" "$A/Standalone/SHIZUKU.app" SHIZUKU-pkg/SHIZUKU/
+          cp Shizuku/dist-extras/* SHIZUKU-pkg/SHIZUKU/
+          mkdir -p SHIZUKU-pkg/SHIZUKU/licenses
+          cp Shizuku/Assets/OFL-*.txt SHIZUKU-pkg/SHIZUKU/licenses/
+          cp Shizuku/Source/zstd/LICENSE-zstd.txt SHIZUKU-pkg/SHIZUKU/licenses/
+          chmod +x "SHIZUKU-pkg/SHIZUKU/SHIZUKUをインストール.command"
+          (cd SHIZUKU-pkg && ditto -c -k --sequesterRsrc --keepParent SHIZUKU ../SHIZUKU-mac.zip)
+
+      - name: Publish as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="shizuku-v1.0.${{ github.run_number }}"
+          printf 'DJ KATSUNII · SHIZUKU Mac版(Serum 2 のプリセットが読めるウェーブテーブルシンセ)(VST3 / AU / 単体アプリ・Apple Silicon + Intel)\n\nSHIZUKU-mac.zip をダウンロードして解凍し、「はじめにお読みください.txt」の手順でインストールしてください。\n' > notes.txt
+          gh release create "$TAG" SHIZUKU-mac.zip --title "SHIZUKU $TAG" --notes-file notes.txt --latest=false
+
+      - name: Keep a copy on the shizuku-builds branch
+        run: |
+          git config user.name "kizami-bot"
+          git config user.email "noreply@github.com"
+          mkdir -p /tmp/out && cp SHIZUKU-mac.zip build-report.txt /tmp/out/
+          git checkout --orphan shizuku-builds
+          git rm -rf -q . || true
+          rm -rf JUCE build-shizuku SHIZUKU-pkg Shizuku Kanade Nagare Yugami Source test dist-extras
+          cp /tmp/out/* .
+          git add SHIZUKU-mac.zip build-report.txt
+          git commit -q -m "SHIZUKU Mac build ${{ github.run_number }}"
+          git push -f origin shizuku-builds

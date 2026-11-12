@@ -3,7 +3,7 @@ name: Build for Mac
 on:
   push:
     branches: [ main ]
-    paths-ignore: [ 'Nagare/**', '.github/workflows/build-nagare-mac.yml', 'Yugami/**', '.github/workflows/build-yugami-mac.yml', 'Kanade/**', '.github/workflows/build-kanade-mac.yml' ]
+    paths-ignore: [ 'Nagare/**', '.github/workflows/build-nagare-mac.yml', 'Yugami/**', '.github/workflows/build-yugami-mac.yml', 'Kanade/**', '.github/workflows/build-kanade-mac.yml', 'Shizuku/**', '.github/workflows/build-shizuku-mac.yml' ]
   workflow_dispatch:
 
 permissions:
